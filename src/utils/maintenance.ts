@@ -1,3 +1,4 @@
+import { minutesToMilliseconds } from 'date-fns/minutesToMilliseconds';
 import createHttpError from 'http-errors';
 import { NextApiRequest } from 'next';
 
@@ -15,4 +16,27 @@ export function assertMaintenanceOperationAuthenticated(req: NextApiRequest) {
 
     throw new createHttpError.Unauthorized(`invalid api key`);
   }
+}
+
+export function promiseWithFatalTimeout<T>(promise: Promise<T>, traceIdentifier: string, timeout?: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => {
+        reject(new Error(`the promise identified as "${traceIdentifier}" has not completed within the expected timeout`));
+      },
+      timeout || minutesToMilliseconds(5)
+    );
+
+    promise
+      .then((result) => {
+        clearTimeout(timer);
+
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+
+        reject(error);
+      });
+  });
 }
