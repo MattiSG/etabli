@@ -49,6 +49,7 @@ import { formatDiffResultLog, getDiff } from '@etabli/src/utils/comparaison';
 import { capitalizeFirstLetter, formatArrayProgress } from '@etabli/src/utils/format';
 import { getClosestSinkNode } from '@etabli/src/utils/graph';
 import { languagesExtensions } from '@etabli/src/utils/languages';
+import { promiseWithFatalTimeout } from '@etabli/src/utils/maintenance';
 import { chomiumMaxConcurrency, llmManagerMaximumApiRequestsPerSecond } from '@etabli/src/utils/request';
 import { sleep } from '@etabli/src/utils/sleep';
 import { WappalyzerResultSchema } from '@etabli/src/wappalyzer';
@@ -677,19 +678,22 @@ export async function feedInitiativesFromDatabase() {
 
       try {
         // As explained into the `findMany.select.RawDomainsOnInitiativeMaps` comment, due to saturation reason we get raw domains from here to have the memory freed up at the end of the iteration
-        const initiativeMapRawDomains = await prisma.rawDomain.findMany({
-          where: {
-            id: {
-              in: initiativeMap.RawDomainsOnInitiativeMaps.map((rawDomainOnIMap) => rawDomainOnIMap.rawDomainId),
+        const initiativeMapRawDomains = await promiseWithFatalTimeout(
+          prisma.rawDomain.findMany({
+            where: {
+              id: {
+                in: initiativeMap.RawDomainsOnInitiativeMaps.map((rawDomainOnIMap) => rawDomainOnIMap.rawDomainId),
+              },
             },
-          },
-          select: {
-            id: true,
-            name: true,
-            websiteRawContent: true,
-            websiteInferredName: true,
-          },
-        });
+            select: {
+              id: true,
+              name: true,
+              websiteRawContent: true,
+              websiteInferredName: true,
+            },
+          }),
+          'findMany'
+        );
         assert(initiativeMapRawDomains.length === initiativeMap.RawDomainsOnInitiativeMaps.length);
 
         const websitesTemplates: WebsiteTemplateSchemaType[] = [];
@@ -730,17 +734,20 @@ export async function feedInitiativesFromDatabase() {
             const markdownPath = path.resolve(projectDirectory, `websites/${rawDomain.id}.md`);
 
             if (!useLocalFileCache || !fsSync.existsSync(htmlPath)) {
-              await fs.mkdir(path.dirname(htmlPath), { recursive: true });
-              await fs.writeFile(htmlPath, rawDomain.websiteRawContent, {});
+              await promiseWithFatalTimeout(fs.mkdir(path.dirname(htmlPath), { recursive: true }), 'mkdir1');
+              await promiseWithFatalTimeout(fs.writeFile(htmlPath, rawDomain.websiteRawContent, {}), 'writeFile1');
             }
 
             if (!useLocalFileCache || !fsSync.existsSync(markdownPath)) {
               try {
-                await $({
-                  // For whatever reason sometimes the pandoc command is hanging forever, so forcing a timeout to not block next iterations (this one will be reprocessed at another round)
-                  // Note: it was pretty hard to detect it when having batching concurrency, the result was just seeable when all processes were hanging (and so we digged into finding the issue cause)
-                  timeout: minutesToMilliseconds(3),
-                })`pandoc ${htmlPath} --lua-filter ${noImgAndSvgFilterPath} --lua-filter ${extractMetaDescriptionFilterPath} --lua-filter ${removeInlineFileContentFilterPath} -t gfm-raw_html -o ${markdownPath}`;
+                await promiseWithFatalTimeout(
+                  $({
+                    // For whatever reason sometimes the pandoc command is hanging forever, so forcing a timeout to not block next iterations (this one will be reprocessed at another round)
+                    // Note: it was pretty hard to detect it when having batching concurrency, the result was just seeable when all processes were hanging (and so we digged into finding the issue cause)
+                    timeout: minutesToMilliseconds(3),
+                  })`pandoc ${htmlPath} --lua-filter ${noImgAndSvgFilterPath} --lua-filter ${extractMetaDescriptionFilterPath} --lua-filter ${removeInlineFileContentFilterPath} -t gfm-raw_html -o ${markdownPath}`,
+                  'pandoc'
+                );
               } catch (error) {
                 // Make sure it's a formatted execa error (ref: https://github.com/sindresorhus/execa/issues/909)
                 // Note: for a timeout `error.timedOut` can be true, but sometimes it says it has been killed (`error.killed`)... so just checking the `error.failed` flag
@@ -770,7 +777,7 @@ export async function feedInitiativesFromDatabase() {
               }
             }
 
-            websiteMarkdownContent = await fs.readFile(markdownPath, 'utf-8');
+            websiteMarkdownContent = await promiseWithFatalTimeout(fs.readFile(markdownPath, 'utf-8'), 'readFile1');
           }
 
           // Try to deduce tools used from the frontend
@@ -786,9 +793,9 @@ export async function feedInitiativesFromDatabase() {
             // This is a default from Wappalyzer but they use `acceptInsecureCerts: true` with puppeteer
             // meaning the certificate is no longer checked. It's mitigated by the fact we checked it when enhancing
             // the raw domain metadata, but is still a risk it has changed since then
-            const site = await wappalyzer.open(`https://${rawDomain.name}`, headers, storage);
+            const site = await promiseWithFatalTimeout<any>(wappalyzer.open(`https://${rawDomain.name}`, headers, storage), 'wappalyzerOpen');
 
-            const results = await site.analyze();
+            const results = await promiseWithFatalTimeout(site.analyze(), 'siteAnalyze');
             const parsedResults = WappalyzerResultSchema.parse(results);
 
             // If we fetched at least a page with an eligible status code we continue
@@ -805,18 +812,21 @@ export async function feedInitiativesFromDatabase() {
               // To debug easily since errors could be into multiple URLs, we just gather each URL request metadata
               const errorMessage = JSON.stringify(parsedResults.urls);
 
-              await prisma.initiativeMap.update({
-                where: {
-                  id: initiativeMap.id,
-                },
-                data: {
-                  lastUpdateAttemptWithReachabilityError: new Date(),
-                  lastUpdateAttemptReachabilityError: errorMessage,
-                },
-                select: {
-                  id: true, // Ref: https://github.com/prisma/prisma/issues/6252
-                },
-              });
+              await promiseWithFatalTimeout(
+                prisma.initiativeMap.update({
+                  where: {
+                    id: initiativeMap.id,
+                  },
+                  data: {
+                    lastUpdateAttemptWithReachabilityError: new Date(),
+                    lastUpdateAttemptReachabilityError: errorMessage,
+                  },
+                  select: {
+                    id: true, // Ref: https://github.com/prisma/prisma/issues/6252
+                  },
+                }),
+                'dbUpdate'
+              );
 
               console.error(`skip processing ${initiativeMap.id} due to an error while analyzing one of its websites`);
               console.error(errorMessage);
@@ -824,14 +834,14 @@ export async function feedInitiativesFromDatabase() {
               return;
             }
 
-            await fs.mkdir(path.dirname(wappalyzerAnalysisPath), { recursive: true });
-            await fs.writeFile(wappalyzerAnalysisPath, JSON.stringify(results, null, 2));
+            await promiseWithFatalTimeout(fs.mkdir(path.dirname(wappalyzerAnalysisPath), { recursive: true }), 'mkdir2');
+            await promiseWithFatalTimeout(fs.writeFile(wappalyzerAnalysisPath, JSON.stringify(results, null, 2)), 'writeFile2');
 
             // Wait a bit in case websites from this initiative are on the same servers (tiny delay in this loop because)
-            await sleep(50);
+            await promiseWithFatalTimeout(sleep(50), 'sleep1');
           }
 
-          const wappalyzerAnalysisDataString = await fs.readFile(wappalyzerAnalysisPath, 'utf-8');
+          const wappalyzerAnalysisDataString = await promiseWithFatalTimeout(fs.readFile(wappalyzerAnalysisPath, 'utf-8'), 'readFile3');
           const wappalyzerAnalysisDataObject = JSON.parse(wappalyzerAnalysisDataString);
           const wappalyzerAnalysisData = WappalyzerResultSchema.parse(wappalyzerAnalysisDataObject);
 
@@ -1097,7 +1107,10 @@ export async function feedInitiativesFromDatabase() {
             // Process the message if it fits into the LLM limits
             let answerData: ResultSchemaType;
             try {
-              answerData = await llmManagerInstance.computeInitiative(settings, projectDirectory, finalGptContent, mixedInitiativeTools);
+              answerData = await promiseWithFatalTimeout(
+                llmManagerInstance.computeInitiative(settings, projectDirectory, finalGptContent, mixedInitiativeTools),
+                'compute'
+              );
             } catch (error) {
               if (error === llmResponseFormatError) {
                 // Since we cannot force the LLM to return an JSON object exactly, we had to deal with multiple workarounds

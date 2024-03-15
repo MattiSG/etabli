@@ -32,6 +32,7 @@ import { llmResponseFormatError, tokensReachTheLimitError } from '@etabli/src/mo
 import { prisma } from '@etabli/src/prisma';
 import { watchGracefulExitInLoop } from '@etabli/src/server/system';
 import { capitalizeFirstLetter } from '@etabli/src/utils/format';
+import { promiseWithFatalTimeout } from '@etabli/src/utils/maintenance';
 import { sleep } from '@etabli/src/utils/sleep';
 import { getBaseUrl } from '@etabli/src/utils/url';
 
@@ -469,13 +470,19 @@ CONTEXTE :
 
     // To help the LLM we give inside the context tools we are looking for
     // Since we cannot give the 8k+ tools from our database, we try to provide a subset meaningful according to extracted tech references we retrieved
-    const rawToolsVectors = await this.toolsVectorStore.embeddings.embedDocuments(rawToolsFromAnalysis.filter((item) => item.trim() !== ''));
+    const rawToolsVectors = await promiseWithFatalTimeout(
+      this.toolsVectorStore.embeddings.embedDocuments(rawToolsFromAnalysis.filter((item) => item.trim() !== '')),
+      'toolsVectorStore.embeddings.embedDocuments'
+    );
 
     const contextTools: string[] = [];
     for (let i = 0; i < rawToolsVectors.length; i++) {
       watchGracefulExitInLoop();
 
-      const similaries = await this.toolsVectorStore.similaritySearchVectorWithScore(rawToolsVectors[i], 1);
+      const similaries = await promiseWithFatalTimeout(
+        this.toolsVectorStore.similaritySearchVectorWithScore(rawToolsVectors[i], 1),
+        'toolsVectorStore.similaritySearchVectorWithScore'
+      );
       assert(similaries.length > 0);
 
       // After some testing we evaluated having it under this value responds to our needs (tested on `['@mui/material', '@sentry/browser', 'next', 'mjml', 'crisp-sdk-web', '@gouvfr/dsfr', '@storybook/addon-notes']`)
@@ -491,14 +498,16 @@ CONTEXTE :
     };
 
     // Store the prompt for debug
-    const contentToSend = await chain.prompt.format(invocationInputs);
+    const contentToSend = await promiseWithFatalTimeout(chain.prompt.format(invocationInputs), 'promptFormat');
     const gptPromptPath = path.resolve(projectDirectory, 'langchain-prompt.md');
-    await fs.mkdir(path.dirname(gptPromptPath), { recursive: true });
-    await fs.writeFile(gptPromptPath, contentToSend);
+    await promiseWithFatalTimeout(fs.mkdir(path.dirname(gptPromptPath), { recursive: true }), 'mkdir4');
+    await promiseWithFatalTimeout(fs.writeFile(gptPromptPath, contentToSend), 'writeFile4');
 
     const tokens = mistralTokenizer.encode(contentToSend);
 
-    console.log(`the content to send is ${tokens.length} tokens long (${this.gptInstance.modelTokenLimit} is the input+output limit)`);
+    console.log(
+      `[project path for debug ${projectDirectory}] the content to send is ${tokens.length} tokens long (${this.gptInstance.modelTokenLimit} is the input+output limit)`
+    );
 
     if (tokens.length >= this.gptInstance.modelTokenLimit) {
       console.log('there are too many tokens for this GPT model to accept the current request');
