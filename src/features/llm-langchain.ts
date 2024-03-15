@@ -111,7 +111,7 @@ export class LangchainWithLocalVectorStoreLlmManager implements LlmManager {
 
     // We want to avoid memory leak due to conversations but also for data privacy (the UUID is not guessable, but we limit the risk)
     this.cleanHistoryJob = new CronJob(
-      '0 * * * *', // Every hour
+      '*/5 * * * *', // Every hour TO DEBUG
       () => {
         const sessionHistoryExpirationAt = subHours(new Date(), 6); // If a conversation has more than 6 hours, delete it
         const querySessionHistoryExpirationAt = subHours(new Date(), 1); // If a query has more than 1 hour, delete it
