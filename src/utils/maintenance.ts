@@ -2,6 +2,8 @@ import { minutesToMilliseconds } from 'date-fns/minutesToMilliseconds';
 import createHttpError from 'http-errors';
 import { NextApiRequest } from 'next';
 
+import { promiseTimeoutError } from '@etabli/src/models/entities/errors';
+
 const maintenanceApiKey = process.env.MAINTENANCE_API_KEY;
 
 export function isAuthenticated(apiKeyHeader?: string): boolean {
@@ -22,7 +24,9 @@ export function promiseWithFatalTimeout<T>(promise: Promise<T>, traceIdentifier:
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => {
-        reject(new Error(`the promise identified as "${traceIdentifier}" has not completed within the expected timeout`));
+        console.error(`the promise identified as "${traceIdentifier}" has not completed within the expected timeout`);
+
+        reject(promiseTimeoutError);
       },
       timeout || minutesToMilliseconds(5)
     );

@@ -39,7 +39,7 @@ import {
   resultSchemaDefinition,
 } from '@etabli/src/gpt/template';
 import { getServerTranslation } from '@etabli/src/i18n';
-import { llmResponseFormatError, tokensReachTheLimitError } from '@etabli/src/models/entities/errors';
+import { llmResponseFormatError, promiseTimeoutError, tokensReachTheLimitError } from '@etabli/src/models/entities/errors';
 import { LiteInitiativeMapSchema, LiteInitiativeMapSchemaType } from '@etabli/src/models/entities/initiative';
 import { prisma } from '@etabli/src/prisma';
 import { analyzeWithSemgrep } from '@etabli/src/semgrep/index';
@@ -793,7 +793,25 @@ export async function feedInitiativesFromDatabase() {
             // This is a default from Wappalyzer but they use `acceptInsecureCerts: true` with puppeteer
             // meaning the certificate is no longer checked. It's mitigated by the fact we checked it when enhancing
             // the raw domain metadata, but is still a risk it has changed since then
-            const site = await promiseWithFatalTimeout<any>(wappalyzer.open(`https://${rawDomain.name}`, headers, storage), 'wappalyzerOpen');
+            let site: any;
+            try {
+              site = await promiseWithFatalTimeout(
+                wappalyzer.open(`https://${rawDomain.name}`, headers, storage),
+                `[${initiativeMap.id}][${rawDomain.name}] wappalyzer.open()`
+              );
+            } catch (error) {
+              if (error === promiseTimeoutError) {
+                // It's a random error hanging forever as we already had with `wappalyzer.destroy()`
+                // Since it's known we just skip this initiative so it will be processed next time
+                // Note: it's probable the program has to be forced to shut down since somewhere the wappalyzer promise is stuck
+                // TODO: the best would be to find where it happens in the no longer maintained wappalyzer application to fix it (there is no way to cancel an async process from the outside)
+                console.error(`skip processing ${initiativeMap.id} due to wappalyzer opening timing out`);
+
+                return;
+              } else {
+                throw error;
+              }
+            }
 
             const results = await promiseWithFatalTimeout(site.analyze(), 'siteAnalyze');
             const parsedResults = WappalyzerResultSchema.parse(results);
@@ -1482,29 +1500,17 @@ export async function feedInitiativesFromDatabase() {
       throw error;
     }
   } finally {
-    let wappalyzerClosedNormally = false;
-
-    // For whatever reason despite the official documentation when doing it it may hang forever (ref: https://github.com/enthec/webappanalyzer/issues/74)
+    // For whatever reason despite the official documentation when doing it may hang forever (ref: https://github.com/enthec/webappanalyzer/issues/74)
     // If not done the program may not quit (it's random), and if done it may be stuck on it... an acceptable workaround is to set a timeout
-    // Note: `Promise.race` was not working by using directly async functions so we used promises (maybe due to the `finally` block? Weird...)
-    await Promise.race([
-      new Promise<void>(async (resolve) => {
-        await wappalyzer.destroy();
-
-        wappalyzerClosedNormally = true;
-
-        resolve();
-      }),
-      new Promise<void>(async (resolve) => {
-        await sleep(4000);
-
-        if (!wappalyzerClosedNormally) {
-          console.warn('wappalyzer seems stuck closing, you may have to force terminating the program if it seems to hang forever');
-        }
-
-        resolve();
-      }),
-    ]);
+    try {
+      await promiseWithFatalTimeout(await wappalyzer.destroy(), `wappalyzer.destroy()`, secondsToMilliseconds(4));
+    } catch (error) {
+      if (error === promiseTimeoutError) {
+        console.warn('wappalyzer seems stuck closing, you may have to force terminating the program if it seems to hang forever');
+      } else {
+        throw error;
+      }
+    }
   }
 }
 
