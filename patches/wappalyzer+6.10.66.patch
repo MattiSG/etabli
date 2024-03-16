@@ -1,0 +1,89 @@
+diff --git a/node_modules/wappalyzer/driver.js b/node_modules/wappalyzer/driver.js
+index abfbcad..7f36f8e 100644
+--- a/node_modules/wappalyzer/driver.js
++++ b/node_modules/wappalyzer/driver.js
+@@ -16,7 +16,7 @@ const chromiumArgs = CHROMIUM_ARGS
+   ? CHROMIUM_ARGS.split(' ')
+   : [
+       '--headless',
+-      '--single-process',
++      // '--single-process',
+       '--no-sandbox',
+       '--no-zygote',
+       '--disable-gpu',
+@@ -56,6 +56,31 @@ function sleep(ms) {
+   return new Promise((resolve) => setTimeout(resolve, ms))
+ }
+ 
++function promiseWithFatalTimeout(promise, traceIdentifier, timeout) {
++  return new Promise((resolve, reject) => {
++    const timer = setTimeout(
++      () => {
++        console.error(`the promise identified as "${traceIdentifier}" has not completed within the expected timeout`);
++
++        reject('timeout');
++      },
++      timeout
++    );
++
++    promise
++      .then((result) => {
++        clearTimeout(timer);
++
++        resolve(result);
++      })
++      .catch((error) => {
++        clearTimeout(timer);
++
++        reject(error);
++      });
++  });
++}
++
+ function getJs(page, technologies = Wappalyzer.technologies) {
+   return page.evaluate((technologies) => {
+     return technologies
+@@ -386,6 +411,8 @@ class Driver {
+           })
+         } else {
+           this.browser = await puppeteer.launch({
++            // headless: 'new',
++            dumpio: true,
+             ignoreHTTPSErrors: true,
+             acceptInsecureCerts: true,
+             args: chromiumArgs,
+@@ -1088,21 +1115,26 @@ class Site {
+ 
+     let page
+ 
+-    try {
+-      page = await this.browser.newPage()
++    // try {
++      console.log(3333333);
++      // ONLY ENABLED IF CONCURRENCY 1 otherwise
++      // other analysis could take too much time making this one timing out
++      page = await promiseWithFatalTimeout(this.browser.newPage(), 'this.browser.newPage()', 90*1000);
++      // page = await this.browser.newPage();
++      console.log(4444444444);
+ 
+       if (!page || page.isClosed()) {
+         throw new Error('Page did not open')
+       }
+-    } catch (error) {
+-      error.message += ` (${url})`
++    // } catch (error) {
++    //   error.message += ` (${url})`
+ 
+-      this.error(error)
++    //   this.error(error)
+ 
+-      await this.initDriver()
++    //   await this.initDriver()
+ 
+-      page = await this.browser.newPage()
+-    }
++    //   page = await this.browser.newPage()
++    // }
+ 
+     this.pages.push(page)
+ 

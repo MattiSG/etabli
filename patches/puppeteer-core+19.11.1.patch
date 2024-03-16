@@ -1,0 +1,51 @@
+diff --git a/node_modules/puppeteer-core/lib/cjs/puppeteer/common/Browser.js b/node_modules/puppeteer-core/lib/cjs/puppeteer/common/Browser.js
+index 1d06285..1e95d35 100644
+--- a/node_modules/puppeteer-core/lib/cjs/puppeteer/common/Browser.js
++++ b/node_modules/puppeteer-core/lib/cjs/puppeteer/common/Browser.js
+@@ -41,6 +41,32 @@ const util_js_1 = require("./util.js");
+ /**
+  * @internal
+  */
++
++function promiseWithFatalTimeout(promise, traceIdentifier, timeout) {
++  return new Promise((resolve, reject) => {
++    const timer = setTimeout(
++      () => {
++        console.error(`the promise identified as "${traceIdentifier}" has not completed within the expected timeout`);
++
++        reject('timeout');
++      },
++      timeout
++    );
++
++    promise
++      .then((result) => {
++        clearTimeout(timer);
++
++        resolve(result);
++      })
++      .catch((error) => {
++        clearTimeout(timer);
++
++        reject(error);
++      });
++  });
++}
++
+ class CDPBrowser extends Browser_js_1.Browser {
+     /**
+      * @internal
+@@ -282,7 +308,12 @@ class CDPBrowser extends Browser_js_1.Browser {
+         if (!initialized) {
+             throw new Error(`Failed to create target for page (id = ${targetId})`);
+         }
+-        const page = await target.page();
++        console.log(111111111);
++      // ONLY ENABLED IF CONCURRENCY 1 otherwise
++      // other analysis could take too much time making this one timing out
++        const page = await promiseWithFatalTimeout(target.page(), 'target.page()', 60 * 1000);
++        // const page = await target.page();
++        console.log(22222222);
+         if (!page) {
+             throw new Error(`Failed to create a page for context (id = ${contextId})`);
+         }
