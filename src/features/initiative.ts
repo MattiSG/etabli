@@ -635,11 +635,17 @@ export async function feedInitiativesFromDatabase() {
 
   try {
     const wappalyzerSemaphore = new Sema(
-      2, // Allow 4 concurrent async calls
+      10, // Allow 4 concurrent async calls
       {
-        capacity: 2, // Prealloc space for 100 tokens
+        capacity: 10, // Prealloc space for 100 tokens
       }
     );
+    // const wappalyzerSemaphore = new Sema(
+    //   2, // Allow 4 concurrent async calls
+    //   {
+    //     capacity: 2, // Prealloc space for 100 tokens
+    //   }
+    // );
 
     await wappalyzer.init();
 
@@ -802,16 +808,21 @@ export async function feedInitiativesFromDatabase() {
             // This is a default from Wappalyzer but they use `acceptInsecureCerts: true` with puppeteer
             // meaning the certificate is no longer checked. It's mitigated by the fact we checked it when enhancing
             // the raw domain metadata, but is still a risk it has changed since then
+            let results: any;
             let parsedResults: WappalyzerResultSchemaType;
             try {
               await wappalyzerSemaphore.acquire();
+
+              // Tenter avec semaphore à 10 concurrency/capacity avec les timeouts...
+              await sleep(500);
 
               let site: any;
 
               // try {
               site = await promiseWithFatalTimeout(
                 wappalyzer.open(`https://${rawDomain.name}`, headers, storage),
-                `[${initiativeMap.id}][${rawDomain.name}] wappalyzer.open()`
+                `[${initiativeMap.id}][${rawDomain.name}] wappalyzer.open()`,
+                minutesToMilliseconds(2)
               );
               // } catch (error) {
               //   if (error === promiseTimeoutError) {
@@ -827,9 +838,12 @@ export async function feedInitiativesFromDatabase() {
               //   }
               // }
 
-              const results = await promiseWithFatalTimeout(site.analyze(), 'siteAnalyze');
-              const parsedResults = WappalyzerResultSchema.parse(results);
+              results = await promiseWithFatalTimeout(site.analyze(), 'siteAnalyze', minutesToMilliseconds(2));
+              parsedResults = WappalyzerResultSchema.parse(results);
             } finally {
+              // Tenter avec semaphore à 10 concurrency/capacity avec les timeouts...
+              await sleep(500);
+
               await wappalyzerSemaphore.release();
             }
 
