@@ -82,7 +82,8 @@ const wappalyzer = new Wappalyzer({
   headers: {
     'Cache-Control': 'no-cache', // Tell the websites servers to not respond with a 304 status code that would use the local Chromium cache (the local Puppeteer cache cannot be disabled from Wappalyzer settings)
   },
-  delay: 0, // Since not analysing multiple pages we are fine with no delay
+  // delay: 0, // Since not analysing multiple pages we are fine with no delay
+  delay: 1000,
   maxDepth: 1,
   maxUrls: 1,
   noRedirect: true,
