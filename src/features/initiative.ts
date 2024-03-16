@@ -794,24 +794,24 @@ export async function feedInitiativesFromDatabase() {
             // meaning the certificate is no longer checked. It's mitigated by the fact we checked it when enhancing
             // the raw domain metadata, but is still a risk it has changed since then
             let site: any;
-            try {
-              site = await promiseWithFatalTimeout(
-                wappalyzer.open(`https://${rawDomain.name}`, headers, storage),
-                `[${initiativeMap.id}][${rawDomain.name}] wappalyzer.open()`
-              );
-            } catch (error) {
-              if (error === promiseTimeoutError) {
-                // It's a random error hanging forever as we already had with `wappalyzer.destroy()`
-                // Since it's known we just skip this initiative so it will be processed next time
-                // Note: it's probable the program has to be forced to shut down since somewhere the wappalyzer promise is stuck
-                // TODO: the best would be to find where it happens in the no longer maintained wappalyzer application to fix it (there is no way to cancel an async process from the outside)
-                console.error(`skip processing ${initiativeMap.id} due to wappalyzer opening timing out`);
+            // try {
+            site = await promiseWithFatalTimeout(
+              wappalyzer.open(`https://${rawDomain.name}`, headers, storage),
+              `[${initiativeMap.id}][${rawDomain.name}] wappalyzer.open()`
+            );
+            // } catch (error) {
+            //   if (error === promiseTimeoutError) {
+            //     // It's a random error hanging forever as we already had with `wappalyzer.destroy()`
+            //     // Since it's known we just skip this initiative so it will be processed next time
+            //     // Note: it's probable the program has to be forced to shut down since somewhere the wappalyzer promise is stuck
+            //     // TODO: the best would be to find where it happens in the no longer maintained wappalyzer application to fix it (there is no way to cancel an async process from the outside)
+            //     console.error(`skip processing ${initiativeMap.id} due to wappalyzer opening timing out`);
 
-                return;
-              } else {
-                throw error;
-              }
-            }
+            //     return;
+            //   } else {
+            //     throw error;
+            //   }
+            // }
 
             const results = await promiseWithFatalTimeout(site.analyze(), 'siteAnalyze');
             const parsedResults = WappalyzerResultSchema.parse(results);
