@@ -3,6 +3,7 @@ import { FunctionalUseCase, Prisma, RawDomain, RawRepository } from '@prisma/cli
 import * as Sentry from '@sentry/nextjs';
 import assert from 'assert';
 import { eachOfLimit } from 'async';
+import { Sema } from 'async-sema';
 import chalk from 'chalk';
 import { differenceInDays } from 'date-fns/differenceInDays';
 import { minutesToMilliseconds } from 'date-fns/minutesToMilliseconds';
@@ -52,7 +53,7 @@ import { languagesExtensions } from '@etabli/src/utils/languages';
 import { promiseWithFatalTimeout } from '@etabli/src/utils/maintenance';
 import { chomiumMaxConcurrency, llmManagerMaximumApiRequestsPerSecond } from '@etabli/src/utils/request';
 import { sleep } from '@etabli/src/utils/sleep';
-import { WappalyzerResultSchema } from '@etabli/src/wappalyzer';
+import { WappalyzerResultSchema, WappalyzerResultSchemaType } from '@etabli/src/wappalyzer';
 
 const __root_dirname = process.cwd();
 
@@ -633,6 +634,13 @@ export async function feedInitiativesFromDatabase() {
   });
 
   try {
+    const wappalyzerSemaphore = new Sema(
+      2, // Allow 4 concurrent async calls
+      {
+        capacity: 2, // Prealloc space for 100 tokens
+      }
+    );
+
     await wappalyzer.init();
 
     // [WORKAROUND] In case we call `wappalyzer.destroy()` too quickly (errors or no loop iteration) it will hang forever
@@ -794,28 +802,36 @@ export async function feedInitiativesFromDatabase() {
             // This is a default from Wappalyzer but they use `acceptInsecureCerts: true` with puppeteer
             // meaning the certificate is no longer checked. It's mitigated by the fact we checked it when enhancing
             // the raw domain metadata, but is still a risk it has changed since then
-            let site: any;
-            // try {
-            site = await promiseWithFatalTimeout(
-              wappalyzer.open(`https://${rawDomain.name}`, headers, storage),
-              `[${initiativeMap.id}][${rawDomain.name}] wappalyzer.open()`
-            );
-            // } catch (error) {
-            //   if (error === promiseTimeoutError) {
-            //     // It's a random error hanging forever as we already had with `wappalyzer.destroy()`
-            //     // Since it's known we just skip this initiative so it will be processed next time
-            //     // Note: it's probable the program has to be forced to shut down since somewhere the wappalyzer promise is stuck
-            //     // TODO: the best would be to find where it happens in the no longer maintained wappalyzer application to fix it (there is no way to cancel an async process from the outside)
-            //     console.error(`skip processing ${initiativeMap.id} due to wappalyzer opening timing out`);
+            let parsedResults: WappalyzerResultSchemaType;
+            try {
+              await wappalyzerSemaphore.acquire();
 
-            //     return;
-            //   } else {
-            //     throw error;
-            //   }
-            // }
+              let site: any;
 
-            const results = await promiseWithFatalTimeout(site.analyze(), 'siteAnalyze');
-            const parsedResults = WappalyzerResultSchema.parse(results);
+              // try {
+              site = await promiseWithFatalTimeout(
+                wappalyzer.open(`https://${rawDomain.name}`, headers, storage),
+                `[${initiativeMap.id}][${rawDomain.name}] wappalyzer.open()`
+              );
+              // } catch (error) {
+              //   if (error === promiseTimeoutError) {
+              //     // It's a random error hanging forever as we already had with `wappalyzer.destroy()`
+              //     // Since it's known we just skip this initiative so it will be processed next time
+              //     // Note: it's probable the program has to be forced to shut down since somewhere the wappalyzer promise is stuck
+              //     // TODO: the best would be to find where it happens in the no longer maintained wappalyzer application to fix it (there is no way to cancel an async process from the outside)
+              //     console.error(`skip processing ${initiativeMap.id} due to wappalyzer opening timing out`);
+
+              //     return;
+              //   } else {
+              //     throw error;
+              //   }
+              // }
+
+              const results = await promiseWithFatalTimeout(site.analyze(), 'siteAnalyze');
+              const parsedResults = WappalyzerResultSchema.parse(results);
+            } finally {
+              await wappalyzerSemaphore.release();
+            }
 
             // If we fetched at least a page with an eligible status code we continue
             const requestMetadataPerUrl = Object.values(parsedResults.urls);
