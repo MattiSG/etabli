@@ -1480,19 +1480,23 @@ export async function feedInitiativesFromDatabase() {
 
     console.log(`the old initiatives no longer part of newly computed initiative maps have been deleted`);
   } catch (error) {
+    console.error(`error while feeding initiatives`);
+
     if (error instanceof OpenAI.APIError) {
-      console.log(error.status);
-      console.log(error.name);
+      console.error(error.status);
+      console.error(error.name);
 
       throw error;
     } else {
+      console.error(error);
+
       throw error;
     }
   } finally {
     // For whatever reason despite the official documentation when doing it may hang forever (ref: https://github.com/enthec/webappanalyzer/issues/74)
     // If not done the program may not quit (it's random), and if done it may be stuck on it... an acceptable workaround is to set a timeout
     try {
-      await promiseWithFatalTimeout(await wappalyzer.destroy(), `wappalyzer.destroy()`, secondsToMilliseconds(4));
+      await promiseWithFatalTimeout(wappalyzer.destroy(), `wappalyzer.destroy()`, secondsToMilliseconds(4));
     } catch (error) {
       if (error === promiseTimeoutError) {
         console.warn('wappalyzer seems stuck closing, you may have to force terminating the program if it seems to hang forever');
