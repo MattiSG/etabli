@@ -22,6 +22,10 @@ export function assertMaintenanceOperationAuthenticated(req: NextApiRequest) {
 
 export function promiseWithFatalTimeout<T>(promise: Promise<T>, traceIdentifier: string, timeout?: number): Promise<T> {
   return new Promise((resolve, reject) => {
+    if (promise === undefined) {
+      reject(`promise is undefined whereas it should not (for the trace ${traceIdentifier})`);
+    }
+
     const timer = setTimeout(
       () => {
         console.error(`the promise identified as "${traceIdentifier}" has not completed within the expected timeout`);

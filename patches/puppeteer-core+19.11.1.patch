@@ -1,14 +1,18 @@
 diff --git a/node_modules/puppeteer-core/lib/cjs/puppeteer/common/Browser.js b/node_modules/puppeteer-core/lib/cjs/puppeteer/common/Browser.js
-index 1d06285..1e95d35 100644
+index 1d06285..ef08ca4 100644
 --- a/node_modules/puppeteer-core/lib/cjs/puppeteer/common/Browser.js
 +++ b/node_modules/puppeteer-core/lib/cjs/puppeteer/common/Browser.js
-@@ -41,6 +41,32 @@ const util_js_1 = require("./util.js");
+@@ -41,6 +41,36 @@ const util_js_1 = require("./util.js");
  /**
   * @internal
   */
 +
 +function promiseWithFatalTimeout(promise, traceIdentifier, timeout) {
 +  return new Promise((resolve, reject) => {
++    if (promise === undefined) {
++      reject(`promise is undefined whereas it should not (for the trace ${traceIdentifier})`)
++    }
++
 +    const timer = setTimeout(
 +      () => {
 +        console.error(`the promise identified as "${traceIdentifier}" has not completed within the expected timeout`);
@@ -35,7 +39,7 @@ index 1d06285..1e95d35 100644
  class CDPBrowser extends Browser_js_1.Browser {
      /**
       * @internal
-@@ -282,7 +308,12 @@ class CDPBrowser extends Browser_js_1.Browser {
+@@ -282,7 +312,12 @@ class CDPBrowser extends Browser_js_1.Browser {
          if (!initialized) {
              throw new Error(`Failed to create target for page (id = ${targetId})`);
          }

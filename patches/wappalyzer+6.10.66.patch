@@ -1,5 +1,5 @@
 diff --git a/node_modules/wappalyzer/driver.js b/node_modules/wappalyzer/driver.js
-index abfbcad..7f36f8e 100644
+index abfbcad..8fdbfe2 100644
 --- a/node_modules/wappalyzer/driver.js
 +++ b/node_modules/wappalyzer/driver.js
 @@ -16,7 +16,7 @@ const chromiumArgs = CHROMIUM_ARGS
@@ -11,12 +11,16 @@ index abfbcad..7f36f8e 100644
        '--no-sandbox',
        '--no-zygote',
        '--disable-gpu',
-@@ -56,6 +56,31 @@ function sleep(ms) {
+@@ -56,6 +56,35 @@ function sleep(ms) {
    return new Promise((resolve) => setTimeout(resolve, ms))
  }
  
 +function promiseWithFatalTimeout(promise, traceIdentifier, timeout) {
 +  return new Promise((resolve, reject) => {
++    if (promise === undefined) {
++      reject(`promise is undefined whereas it should not (for the trace ${traceIdentifier})`)
++    }
++
 +    const timer = setTimeout(
 +      () => {
 +        console.error(`the promise identified as "${traceIdentifier}" has not completed within the expected timeout`);
@@ -43,7 +47,7 @@ index abfbcad..7f36f8e 100644
  function getJs(page, technologies = Wappalyzer.technologies) {
    return page.evaluate((technologies) => {
      return technologies
-@@ -386,6 +411,8 @@ class Driver {
+@@ -386,6 +415,8 @@ class Driver {
            })
          } else {
            this.browser = await puppeteer.launch({
@@ -52,7 +56,7 @@ index abfbcad..7f36f8e 100644
              ignoreHTTPSErrors: true,
              acceptInsecureCerts: true,
              args: chromiumArgs,
-@@ -1088,21 +1115,26 @@ class Site {
+@@ -1088,21 +1119,26 @@ class Site {
  
      let page
  
