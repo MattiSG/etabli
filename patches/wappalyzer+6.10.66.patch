@@ -1,5 +1,5 @@
 diff --git a/node_modules/wappalyzer/driver.js b/node_modules/wappalyzer/driver.js
-index abfbcad..0329564 100644
+index abfbcad..2823d30 100644
 --- a/node_modules/wappalyzer/driver.js
 +++ b/node_modules/wappalyzer/driver.js
 @@ -16,7 +16,7 @@ const chromiumArgs = CHROMIUM_ARGS
@@ -56,15 +56,15 @@ index abfbcad..0329564 100644
              ignoreHTTPSErrors: true,
              acceptInsecureCerts: true,
              args: chromiumArgs,
-@@ -776,7 +807,7 @@ class Site {
-       }
+@@ -543,7 +574,7 @@ class Site {
+     errorMessage = 'Operation took too long to complete',
+     maxWait = this.options.fast
+       ? Math.min(this.options.maxWait, 2000)
+-      : this.options.maxWait
++      : (4 * this.options.maxWait) // Increasing the default timeout since async processes in JavaScript will take longer than usual since we use concurrency (the real `maxWait` is only meaningful when talking to Puppeteer)
+   ) {
+     let timeout = null
  
-       // HTML
--      let html = await this.promiseTimeout(page.content(), '', 'Timeout (html)')
-+      let html = await this.promiseTimeout(page.content(), '', 'Timeout (html)', 4 * this.options.maxWait)
- 
-       if (this.options.htmlMaxCols && this.options.htmlMaxRows) {
-         const batches = []
 @@ -1088,21 +1119,26 @@ class Site {
  
      let page
